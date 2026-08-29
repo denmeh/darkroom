@@ -8,12 +8,21 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.requests import Request
 
 from darkroom.avatars import avatar_file, fetch_avatar, has_avatar
 from darkroom.db import get_db, utcnow
+from darkroom.errors import (
+    DarkroomError,
+    InstagramUnreachable,
+    InvalidAccount,
+    LoginInProgress,
+    SessionExpired,
+    SessionNotFound,
+)
 from darkroom.login import login_in_browser
 from darkroom.scan import (
     ListKind,
@@ -27,7 +36,6 @@ from darkroom.scan import (
     store as scan_store,
 )
 from darkroom.session import (
-    SessionExpired,
     current_pk,
     deactivate,
     delete_session,
@@ -115,6 +123,30 @@ def _me_from(profile: dict) -> Me:
     )
 
 
+def _me_from_db(pk: str) -> Me:
+    row = get_db().query_one(
+        """
+        SELECT username, full_name, is_private, is_verified, profile_pic_url
+        FROM accounts WHERE pk = ?
+        """,
+        (pk,),
+    )
+    if row is None:
+        return Me(
+            pk=pk,
+            avatar_url=f"/api/avatars/{pk}" if has_avatar(pk) else None,
+        )
+    has_pic = has_avatar(pk) or bool(row["profile_pic_url"])
+    return Me(
+        pk=pk,
+        username=row["username"],
+        full_name=row["full_name"] or None,
+        is_private=bool(row["is_private"]) if row["is_private"] is not None else None,
+        is_verified=bool(row["is_verified"]) if row["is_verified"] is not None else None,
+        avatar_url=f"/api/avatars/{pk}" if has_pic else None,
+    )
+
+
 def _saved_sessions() -> list[SavedSession]:
     db = get_db()
     out: list[SavedSession] = []
@@ -141,7 +173,6 @@ class LoginStore:
         self._lock = threading.Lock()
         self.state: LoginState = "idle"
         self.error: str | None = None
-        self.logged_in = False
         self.username: str | None = None
         self.me: Me | None = None
         self._validated = False
@@ -149,14 +180,15 @@ class LoginStore:
     def snapshot(self) -> AppStatus:
         self.ensure_validated()
         sessions = _saved_sessions()
+        logged_in = current_pk() is not None
         with self._lock:
-            path = session_path() if self.logged_in else sessions_dir()
+            path = session_path() if logged_in else sessions_dir()
             return AppStatus(
-                logged_in=self.logged_in,
-                username=self.username,
+                logged_in=logged_in,
+                username=self.username if logged_in else None,
                 session_path=str(path),
                 login=LoginStatus(state=self.state, error=self.error),
-                me=self.me,
+                me=self.me if logged_in else None,
                 sessions=sessions,
             )
 
@@ -165,34 +197,49 @@ class LoginStore:
             if self._validated:
                 return
         pk = current_pk()
+        if not pk:
+            with self._lock:
+                if self._validated:
+                    return
+                self.username = None
+                self.me = None
+                self._validated = True
+            scan_store.bind(None)
+            return
+
         profile = None
-        if pk:
-            try:
-                profile = load_session_profile(pk)
-            except SessionExpired:
-                profile = None
-            except Exception:
-                profile = None
-        me = _me_from(profile) if profile else None
-        owner = profile["pk"] if profile else None
+        expired = False
+        try:
+            profile = load_session_profile(pk)
+        except SessionExpired:
+            expired = True
+        except FileNotFoundError:
+            expired = True
+        except Exception:
+            profile = None
+
+        if expired:
+            me = None
+            owner = None
+        elif profile:
+            me = _me_from(profile)
+            owner = str(profile["pk"])
+        else:
+            me = _me_from_db(pk)
+            owner = pk
+
         with self._lock:
             if self._validated:
                 return
-            if profile:
-                self.logged_in = True
-                self.username = profile.get("username")
-                self.me = me
-            else:
-                self.logged_in = False
-                self.username = None
-                self.me = None
+            self.username = me.username if me else None
+            self.me = me
             self._validated = True
         scan_store.bind(owner)
 
     def start(self) -> None:
         with self._lock:
             if self.state == "waiting":
-                raise HTTPException(status_code=409, detail="Login already in progress")
+                raise LoginInProgress()
             self.state = "waiting"
             self.error = None
         thread = threading.Thread(target=self._run, name="darkroom-login", daemon=True)
@@ -208,6 +255,16 @@ class LoginStore:
             return
         try:
             profile = load_session_profile(pk)
+        except SessionExpired as exc:
+            with self._lock:
+                self.state = "error"
+                self.error = str(exc)
+            return
+        except FileNotFoundError:
+            with self._lock:
+                self.state = "error"
+                self.error = "Saved session not found"
+            return
         except Exception:
             profile = None
         me = Me(pk=pk, username=username)
@@ -223,7 +280,6 @@ class LoginStore:
         with self._lock:
             self.state = "done"
             self.error = None
-            self.logged_in = True
             self.username = me.username or username
             self.me = me
             self._validated = True
@@ -231,32 +287,27 @@ class LoginStore:
 
     def switch_to(self, pk: str) -> AppStatus:
         if not pk.isdigit():
-            raise HTTPException(status_code=400, detail="Invalid account")
+            raise InvalidAccount()
         if not session_file(pk).is_file():
-            raise HTTPException(status_code=404, detail="Saved session not found")
+            raise SessionNotFound()
         with self._lock:
             if self.state == "waiting":
-                raise HTTPException(status_code=409, detail="Login already in progress")
+                raise LoginInProgress()
         try:
             profile = load_session_profile(pk)
-        except SessionExpired:
-            raise HTTPException(
-                status_code=401,
-                detail="That session expired. Sign in again.",
-            ) from None
+        except FileNotFoundError:
+            raise SessionNotFound() from None
+        except DarkroomError:
+            raise
         except Exception as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=str(exc) or "Could not reach Instagram",
-            ) from exc
+            raise InstagramUnreachable(str(exc) or None) from exc
         if not profile:
-            raise HTTPException(status_code=404, detail="Saved session not found")
+            raise SessionNotFound()
         set_current(pk)
         me = _me_from(profile)
         with self._lock:
             self.state = "done"
             self.error = None
-            self.logged_in = True
             self.username = me.username
             self.me = me
             self._validated = True
@@ -265,13 +316,12 @@ class LoginStore:
 
     def forget(self, pk: str) -> AppStatus:
         if not pk.isdigit():
-            raise HTTPException(status_code=400, detail="Invalid account")
+            raise InvalidAccount()
         was_current = current_pk() == pk
         delete_session(pk)
         if was_current:
             scan_store.bind(None)
             with self._lock:
-                self.logged_in = False
                 self.username = None
                 self.me = None
                 self.state = "idle"
@@ -283,7 +333,6 @@ class LoginStore:
         scan_store.bind(None)
         deactivate()
         with self._lock:
-            self.logged_in = False
             self.username = None
             self.me = None
             self.state = "idle"
@@ -304,6 +353,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(DarkroomError)
+def domain_error(_request: Request, exc: DarkroomError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 
 @app.get("/api/health")
@@ -349,8 +403,6 @@ def api_scan_status() -> ScanStatus:
 
 @app.post("/api/scan", response_model=ScanStatus)
 def api_scan_start() -> ScanStatus:
-    if not store.snapshot().logged_in:
-        raise HTTPException(status_code=401, detail="Not logged in")
     return scan_store.start()
 
 

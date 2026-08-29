@@ -4,7 +4,6 @@ import threading
 import time
 from typing import Literal
 
-from fastapi import HTTPException
 from instagrapi.exceptions import (
     ClientThrottledError,
     FeedbackRequired,
@@ -24,6 +23,7 @@ from darkroom.crawl import (
     fetch_page,
 )
 from darkroom.db import Database, get_db, utcnow
+from darkroom.errors import NotLoggedIn, ScanBusy, ScanNotFound
 from darkroom.session import load_client, session_user_pk
 
 # A scan is two paced crawls of the logged-in account (following, then
@@ -149,7 +149,7 @@ def _member_pks(db: Database, scan_id: int, list_name: str) -> set[str]:
 def _require_owner() -> str:
     pk = session_user_pk()
     if not pk:
-        raise HTTPException(status_code=401, detail="Not logged in")
+        raise NotLoggedIn()
     return pk
 
 
@@ -159,7 +159,7 @@ def _owned_scan(db: Database, scan_id: int, owner_pk: str):
         (scan_id, owner_pk),
     )
     if row is None:
-        raise HTTPException(status_code=404, detail="Scan not found")
+        raise ScanNotFound()
     return row
 
 
@@ -249,7 +249,7 @@ class ScanStore:
         owner = _require_owner()
         with self._lock:
             if self.state in ("running", "waiting"):
-                raise HTTPException(status_code=409, detail="A scan is already running")
+                raise ScanBusy()
             self._owner_pk = owner
             self._stop.clear()
             self.state = "running"

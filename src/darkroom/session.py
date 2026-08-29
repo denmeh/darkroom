@@ -12,6 +12,8 @@ from instagrapi.exceptions import (
     ReloginAttemptExceeded,
 )
 
+from darkroom.errors import SessionExpired
+
 APP_DIR = Path.home() / "darkroom"
 SESSIONS_DIR = APP_DIR / "sessions"
 CURRENT_FILE = SESSIONS_DIR / "current"
@@ -25,10 +27,6 @@ AUTH_ERRORS = (
 )
 
 _migrated = False
-
-
-class SessionExpired(Exception):
-    """Instagram rejected this saved session; the file has been deleted."""
 
 
 def ensure_app_dir() -> Path:

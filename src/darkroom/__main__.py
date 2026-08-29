@@ -67,9 +67,9 @@ def main() -> None:
     webview.create_window(
         "Darkroom",
         url,
-        width=960,
-        height=720,
-        min_size=(720, 560),
+        width=1440,
+        height=900,
+        min_size=(1100, 720),
     )
     webview.start(gui="qt")
 

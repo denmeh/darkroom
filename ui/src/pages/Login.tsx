@@ -46,7 +46,8 @@ export function LoginForm({ status, busy, onLogin }: LoginFormProps) {
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Signed in</CardTitle>
           <CardDescription>
-            Session saved. You can move on to the next phase.
+            Session saved. Run a scan to snapshot following and find
+            unfollowers.
           </CardDescription>
         </CardHeader>
         <CardContent>

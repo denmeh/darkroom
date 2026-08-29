@@ -10,8 +10,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from darkroom.following import FollowingRequest, FollowingStatus, store as following_store
 from darkroom.login import login_in_browser
+from darkroom.scan import (
+    ListKind,
+    Report,
+    ScanStatus,
+    ScanSummary,
+    UserPage,
+    latest_report,
+    list_scans,
+    list_users,
+    store as scan_store,
+)
 from darkroom.session import session_path, validate_session
 
 LoginState = Literal["idle", "waiting", "done", "error"]
@@ -119,21 +129,40 @@ def api_login_status() -> AppStatus:
     return store.snapshot()
 
 
-@app.get("/api/following", response_model=FollowingStatus)
-def api_following_status() -> FollowingStatus:
-    return following_store.snapshot()
+@app.get("/api/scan", response_model=ScanStatus)
+def api_scan_status() -> ScanStatus:
+    return scan_store.snapshot()
 
 
-@app.post("/api/following", response_model=FollowingStatus)
-def api_following_start(body: FollowingRequest) -> FollowingStatus:
+@app.post("/api/scan", response_model=ScanStatus)
+def api_scan_start() -> ScanStatus:
     if not store.snapshot().logged_in:
         raise HTTPException(status_code=401, detail="Not logged in")
-    return following_store.start(body.username)
+    return scan_store.start()
 
 
-@app.post("/api/following/stop", response_model=FollowingStatus)
-def api_following_stop() -> FollowingStatus:
-    return following_store.stop()
+@app.post("/api/scan/stop", response_model=ScanStatus)
+def api_scan_stop() -> ScanStatus:
+    return scan_store.stop()
+
+
+@app.get("/api/report", response_model=Report)
+def api_report() -> Report:
+    return latest_report()
+
+
+@app.get("/api/scans", response_model=list[ScanSummary])
+def api_scans() -> list[ScanSummary]:
+    return list_scans()
+
+
+@app.get("/api/report/users", response_model=UserPage)
+def api_report_users(
+    kind: ListKind = "unfollowers",
+    offset: int = 0,
+    limit: int = 100,
+) -> UserPage:
+    return list_users(kind, offset=offset, limit=limit)
 
 
 def mount_ui() -> None:

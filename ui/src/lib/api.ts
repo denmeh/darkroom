@@ -10,9 +10,48 @@ export type AppStatus = {
   }
 }
 
-export type FollowingState = "idle" | "running" | "waiting" | "done" | "error"
+export type ScanState = "idle" | "running" | "waiting" | "done" | "error"
+export type ScanPhase = "following" | "followers" | "comparing" | null
 
-export type FollowingUser = {
+export type ScanStatus = {
+  state: ScanState
+  phase: ScanPhase
+  scan_id: number | null
+  wait_seconds: number | null
+  following_fetched: number
+  following_total: number | null
+  followers_fetched: number
+  followers_total: number | null
+  error: string | null
+}
+
+export type ScanSummary = {
+  id: number
+  started_at: string
+  finished_at: string | null
+  state: string
+  following_fetched: number
+  followers_fetched: number
+  unfollowers_count: number | null
+  vanished_count: number | null
+  new_following_count: number | null
+}
+
+export type ReportCounts = {
+  following: number
+  followers: number
+  unfollowers: number
+  vanished: number
+  new_following: number
+}
+
+export type Report = {
+  latest: ScanSummary | null
+  previous: ScanSummary | null
+  counts: ReportCounts
+}
+
+export type Account = {
   pk: string
   username: string | null
   full_name: string | null
@@ -20,18 +59,18 @@ export type FollowingUser = {
   is_verified: boolean | null
 }
 
-export type FollowingStatus = {
-  state: FollowingState
-  username: string | null
-  user_id: string | null
-  fetched: number
-  total: number | null
-  wait_seconds: number | null
-  error: string | null
-  path: string | null
-  resumed: boolean
-  is_private: boolean
-  users: FollowingUser[]
+export type ListKind =
+  | "unfollowers"
+  | "vanished"
+  | "new_following"
+  | "following"
+  | "followers"
+
+export type UserPage = {
+  kind: ListKind
+  total: number
+  offset: number
+  users: Account[]
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -50,12 +89,8 @@ async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
-async function parseStatus(response: Response): Promise<AppStatus> {
-  return parseJson<AppStatus>(response)
-}
-
 export async function getStatus(): Promise<AppStatus> {
-  return parseStatus(await fetch("/api/status"))
+  return parseJson<AppStatus>(await fetch("/api/status"))
 }
 
 export async function startLogin(): Promise<AppStatus> {
@@ -63,27 +98,42 @@ export async function startLogin(): Promise<AppStatus> {
   if (response.status === 409) {
     return getStatus()
   }
-  return parseStatus(response)
+  return parseJson<AppStatus>(response)
 }
 
-export async function getFollowing(): Promise<FollowingStatus> {
-  return parseJson<FollowingStatus>(await fetch("/api/following"))
+export async function getScan(): Promise<ScanStatus> {
+  return parseJson<ScanStatus>(await fetch("/api/scan"))
 }
 
-export async function startFollowing(username: string): Promise<FollowingStatus> {
-  const response = await fetch("/api/following", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username }),
-  })
+export async function startScan(): Promise<ScanStatus> {
+  const response = await fetch("/api/scan", { method: "POST" })
   if (response.status === 409) {
-    return getFollowing()
+    return getScan()
   }
-  return parseJson<FollowingStatus>(response)
+  return parseJson<ScanStatus>(response)
 }
 
-export async function stopFollowing(): Promise<FollowingStatus> {
-  return parseJson<FollowingStatus>(
-    await fetch("/api/following/stop", { method: "POST" }),
-  )
+export async function stopScan(): Promise<ScanStatus> {
+  return parseJson<ScanStatus>(await fetch("/api/scan/stop", { method: "POST" }))
+}
+
+export async function getReport(): Promise<Report> {
+  return parseJson<Report>(await fetch("/api/report"))
+}
+
+export async function getScans(): Promise<ScanSummary[]> {
+  return parseJson<ScanSummary[]>(await fetch("/api/scans"))
+}
+
+export async function getReportUsers(
+  kind: ListKind,
+  offset = 0,
+  limit = 100,
+): Promise<UserPage> {
+  const params = new URLSearchParams({
+    kind,
+    offset: String(offset),
+    limit: String(limit),
+  })
+  return parseJson<UserPage>(await fetch(`/api/report/users?${params}`))
 }

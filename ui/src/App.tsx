@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircleIcon } from "lucide-react"
+import {
+  AlertCircleIcon,
+  Clock3,
+  ScanSearch,
+  UserRound,
+} from "lucide-react"
 
 import { Brand } from "@/components/brand"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -13,21 +18,27 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getStatus, startLogin, type AppStatus } from "@/lib/api"
-import { FollowingPage } from "@/pages/Following"
+import { cn } from "@/lib/utils"
+import { HistoryPage } from "@/pages/History"
 import { AuthLayout, LoginForm } from "@/pages/Login"
-import { PlaceholderPage } from "@/pages/Placeholder"
+import { ScanPage } from "@/pages/Scan"
 
-type PhaseId = "login" | "phase-2" | "phase-3"
+type NavId = "scan" | "history" | "account"
 
-function phaseFor(status: AppStatus): PhaseId {
-  return status.logged_in ? "phase-2" : "login"
+const NAV: { id: NavId; label: string; icon: typeof ScanSearch }[] = [
+  { id: "scan", label: "Scan", icon: ScanSearch },
+  { id: "history", label: "History", icon: Clock3 },
+  { id: "account", label: "Account", icon: UserRound },
+]
+
+function phaseFor(status: AppStatus): NavId {
+  return status.logged_in ? "scan" : "account"
 }
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null)
-  const [phase, setPhase] = useState<PhaseId>("login")
+  const [nav, setNav] = useState<NavId>("scan")
   const [loadError, setLoadError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
@@ -35,9 +46,6 @@ export default function App() {
     const next = await getStatus()
     setStatus(next)
     setLoadError(null)
-    if (next.logged_in) {
-      setPhase((current) => (current === "login" ? "phase-2" : current))
-    }
     return next
   }, [])
 
@@ -47,7 +55,7 @@ export default function App() {
       .then((next) => {
         if (cancelled) return
         setStatus(next)
-        setPhase(phaseFor(next))
+        setNav(phaseFor(next))
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -72,9 +80,7 @@ export default function App() {
       const next = await startLogin()
       setStatus(next)
       setLoadError(null)
-      if (next.logged_in) {
-        setPhase((current) => (current === "login" ? "phase-2" : current))
-      }
+      if (next.logged_in) setNav("scan")
     } catch (error: unknown) {
       setLoadError(error instanceof Error ? error.message : "Login failed")
     } finally {
@@ -144,45 +150,49 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-svh flex-col">
-      <header className="flex h-14 shrink-0 items-center border-b">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between px-6">
+    <div className="flex min-h-svh">
+      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+        <div className="flex h-14 items-center px-4">
           <Brand />
-          {status.login.state === "waiting" ? (
-            <Badge variant="secondary">
-              <Spinner />
-              Waiting
-            </Badge>
-          ) : (
-            <Badge variant="secondary">@{status.username}</Badge>
-          )}
         </div>
-      </header>
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col p-6">
-        <Tabs
-          value={phase}
-          onValueChange={(value) => setPhase(value as PhaseId)}
-        >
-          <TabsList className="w-full">
-            <TabsTrigger value="login">Login</TabsTrigger>
-            <TabsTrigger value="phase-2">Following</TabsTrigger>
-            <TabsTrigger value="phase-3">Phase 3</TabsTrigger>
-          </TabsList>
-          <TabsContent value="login">
-            <LoginForm
-              status={status}
-              busy={starting}
-              onLogin={() => void onLogin()}
-            />
-          </TabsContent>
-          <TabsContent value="phase-2">
-            <FollowingPage />
-          </TabsContent>
-          <TabsContent value="phase-3">
-            <PlaceholderPage title="Phase 3" phase={3} />
-          </TabsContent>
-        </Tabs>
-      </main>
+        <nav className="flex flex-1 flex-col gap-1 p-2">
+          {NAV.map((item) => (
+            <Button
+              key={item.id}
+              variant="ghost"
+              className={cn(
+                "w-full justify-start",
+                nav === item.id &&
+                  "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+              onClick={() => setNav(item.id)}
+            >
+              <item.icon />
+              {item.label}
+            </Button>
+          ))}
+        </nav>
+        <div className="p-3">
+          <Badge variant="secondary" className="w-full justify-center">
+            @{status.username}
+          </Badge>
+        </div>
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col bg-background">
+        <main className="mx-auto w-full max-w-5xl flex-1 p-6">
+          {nav === "scan" && <ScanPage />}
+          {nav === "history" && <HistoryPage />}
+          {nav === "account" && (
+            <div className="mx-auto max-w-sm">
+              <LoginForm
+                status={status}
+                busy={starting}
+                onLogin={() => void onLogin()}
+              />
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   )
 }

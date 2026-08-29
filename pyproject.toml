@@ -27,3 +27,6 @@ darkroom = ["assets/*"]
 
 [project.scripts]
 darkroom = "darkroom.__main__:main"
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.11"]

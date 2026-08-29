@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import threading
 import webbrowser
-from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +13,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from darkroom.avatars import avatar_file, fetch_avatar, has_avatar
+from darkroom.paths import ui_dist
 from darkroom.db import get_db, utcnow
 from darkroom.errors import (
     DarkroomError,
@@ -51,7 +51,7 @@ IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 
 LoginState = Literal["idle", "waiting", "done", "error"]
 
-UI_DIST = Path(__file__).resolve().parent.parent.parent / "ui" / "dist"
+UI_DIST = ui_dist()
 
 
 class LoginStatus(BaseModel):
@@ -458,8 +458,8 @@ def api_avatar(pk: str) -> FileResponse:
 
 
 def mount_ui() -> None:
-    if not UI_DIST.is_dir():
-        return
+    if not (UI_DIST / "index.html").is_file():
+        raise RuntimeError(f"UI build not found at {UI_DIST}")
     assets = UI_DIST / "assets"
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")

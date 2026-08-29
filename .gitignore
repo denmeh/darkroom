@@ -9,3 +9,5 @@ __pycache__/
 ui/node_modules/
 ui/dist/
 .cursor/
+build/
+dist/

@@ -1,6 +1,10 @@
 import tempfile
 import time
 
+from darkroom.paths import configure_frozen_env
+
+configure_frozen_env()
+
 from instagrapi import Client
 from playwright.sync_api import sync_playwright
 

@@ -17,12 +17,13 @@ Python FastAPI + pywebview (Qt) wrap a Vite/React UI.
 
 ## Requirements
 
+- **Linux x86_64** desktop (developed and tested on **Fedora**). Arch, Debian, and Ubuntu may work if Qt 6 / WebEngine libraries are installed. **Not Windows or macOS.**
 - Python 3.11+
 - Node.js (for the UI)
 - [just](https://github.com/casey/just)
 - A desktop environment (Qt window + a Chromium window for login)
 
-On Fedora, Qt and Chromium system libraries are typically already present once Playwright installs its browser.
+On Fedora, Qt and Chromium system libraries are typically already present once Playwright installs its browser. On Arch, install the usual Qt 6 stack if the window fails to start (`qt6-base`, `qt6-webengine`, and related packages).
 
 ## Install
 
@@ -47,6 +48,20 @@ just dev
 ```
 
 Vite listens on `http://127.0.0.1:5173` and proxies `/api` to the backend.
+
+## Build (Linux x86_64 only)
+
+`just build` and `just install-desktop` refuse to run on Windows, macOS, or non-x86_64 Linux. There is no `.exe` / `.dmg`. The frozen folder is a **glibc** Linux binary, so it will not run on musl systems such as Alpine.
+
+```bash
+just build
+```
+
+What that does:
+
+1. Builds the React UI into `ui/dist`
+2. Runs [PyInstaller](https://pyinstaller.org/) (`darkroom.spec`) to copy Python, PyQt6 WebEngine, the UI, and Playwright Chromium into `dist/darkroom/`
+3. The launcher is `dist/darkroom/darkroom`; `_internal/` next to it is required. Copy the **whole folder**, not the binary alone (~1.2 GB)
 
 ## How a scan works
 

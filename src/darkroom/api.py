@@ -24,7 +24,7 @@ from darkroom.scan import (
     list_users,
     store as scan_store,
 )
-from darkroom.session import session_path, validate_session
+from darkroom.session import clear_session, session_path, validate_session
 
 LoginState = Literal["idle", "waiting", "done", "error"]
 
@@ -95,6 +95,16 @@ class LoginStore:
             self.username = username
             self._validated = True
 
+    def logout(self) -> AppStatus:
+        clear_session()
+        with self._lock:
+            self.logged_in = False
+            self.username = None
+            self.state = "idle"
+            self.error = None
+            self._validated = True
+        return self.snapshot()
+
 
 store = LoginStore()
 app = FastAPI(title="Darkroom")
@@ -129,6 +139,11 @@ def api_login() -> AppStatus:
 @app.get("/api/login/status", response_model=AppStatus)
 def api_login_status() -> AppStatus:
     return store.snapshot()
+
+
+@app.post("/api/logout", response_model=AppStatus)
+def api_logout() -> AppStatus:
+    return store.logout()
 
 
 @app.get("/api/scan", response_model=ScanStatus)

@@ -102,6 +102,10 @@ export async function startLogin(): Promise<AppStatus> {
   return parseJson<AppStatus>(response)
 }
 
+export async function signOut(): Promise<AppStatus> {
+  return parseJson<AppStatus>(await fetch("/api/logout", { method: "POST" }))
+}
+
 export async function getScan(): Promise<ScanStatus> {
   return parseJson<ScanStatus>(await fetch("/api/scan"))
 }

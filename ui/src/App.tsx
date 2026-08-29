@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 
 import { Brand } from "@/components/brand"
+import { ModeToggle } from "@/components/mode-toggle"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,7 +19,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { getStatus, startLogin, type AppStatus } from "@/lib/api"
+import { getStatus, signOut, startLogin, type AppStatus } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { HistoryPage } from "@/pages/History"
 import { AuthLayout, LoginForm } from "@/pages/Login"
@@ -41,6 +42,7 @@ export default function App() {
   const [nav, setNav] = useState<NavId>("scan")
   const [loadError, setLoadError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
 
   const refresh = useCallback(async () => {
     const next = await getStatus()
@@ -73,6 +75,19 @@ export default function App() {
     }, 1000)
     return () => window.clearInterval(id)
   }, [status?.login.state, refresh])
+
+  async function onSignOut() {
+    setSigningOut(true)
+    try {
+      const next = await signOut()
+      setStatus(next)
+      setLoadError(null)
+    } catch (error: unknown) {
+      setLoadError(error instanceof Error ? error.message : "Sign out failed")
+    } finally {
+      setSigningOut(false)
+    }
+  }
 
   async function onLogin() {
     setStarting(true)
@@ -152,8 +167,9 @@ export default function App() {
   return (
     <div className="flex min-h-svh">
       <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-        <div className="flex h-14 items-center px-4">
+        <div className="flex h-14 items-center justify-between gap-2 px-4">
           <Brand />
+          <ModeToggle />
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-2">
           {NAV.map((item) => (
@@ -187,7 +203,9 @@ export default function App() {
               <LoginForm
                 status={status}
                 busy={starting}
+                signingOut={signingOut}
                 onLogin={() => void onLogin()}
+                onSignOut={() => void onSignOut()}
               />
             </div>
           )}

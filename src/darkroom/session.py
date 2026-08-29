@@ -19,6 +19,11 @@ def session_exists() -> bool:
     return SESSION_FILE.is_file()
 
 
+def clear_session() -> None:
+    if SESSION_FILE.is_file():
+        SESSION_FILE.unlink()
+
+
 def save_client(client: Client) -> Path:
     ensure_app_dir()
     client.dump_settings(str(SESSION_FILE))

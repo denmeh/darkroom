@@ -1,13 +1,15 @@
 import type { ReactNode } from "react"
-import { AlertCircleIcon, Aperture, CheckCircle2Icon } from "lucide-react"
+import { AlertCircleIcon, Aperture, CheckCircle2Icon, LogOut } from "lucide-react"
 
 import { Brand } from "@/components/brand"
+import { ModeToggle } from "@/components/mode-toggle"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -21,7 +23,10 @@ import type { AppStatus } from "@/lib/api"
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
+    <div className="relative flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
+      <div className="absolute top-4 right-4">
+        <ModeToggle />
+      </div>
       <div className="flex w-full max-w-sm flex-col gap-6">
         <Brand className="self-center" />
         {children}
@@ -34,9 +39,17 @@ type LoginFormProps = {
   status: AppStatus
   busy: boolean
   onLogin: () => void
+  onSignOut?: () => void
+  signingOut?: boolean
 }
 
-export function LoginForm({ status, busy, onLogin }: LoginFormProps) {
+export function LoginForm({
+  status,
+  busy,
+  onLogin,
+  onSignOut,
+  signingOut = false,
+}: LoginFormProps) {
   const waiting = status.login.state === "waiting" || busy
   const error = status.login.state === "error" ? status.login.error : null
 
@@ -63,6 +76,20 @@ export function LoginForm({ status, busy, onLogin }: LoginFormProps) {
             </Alert>
           </FieldGroup>
         </CardContent>
+        {onSignOut ? (
+          <CardFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={signingOut}
+              onClick={onSignOut}
+            >
+              {signingOut ? <Spinner /> : <LogOut />}
+              Sign out
+            </Button>
+          </CardFooter>
+        ) : null}
       </Card>
     )
   }

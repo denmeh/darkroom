@@ -13,6 +13,13 @@ export type Me = {
   avatar_url: string | null
 }
 
+export type SavedSession = {
+  pk: string
+  username: string | null
+  full_name: string | null
+  avatar_url: string | null
+}
+
 export type AppStatus = {
   logged_in: boolean
   username: string | null
@@ -22,6 +29,7 @@ export type AppStatus = {
     error: string | null
   }
   me: Me | null
+  sessions: SavedSession[]
 }
 
 export type ScanState = "idle" | "running" | "waiting" | "done" | "error"
@@ -119,6 +127,18 @@ export async function startLogin(): Promise<AppStatus> {
 
 export async function signOut(): Promise<AppStatus> {
   return parseJson<AppStatus>(await fetch("/api/logout", { method: "POST" }))
+}
+
+export async function switchSession(pk: string): Promise<AppStatus> {
+  return parseJson<AppStatus>(
+    await fetch(`/api/sessions/${pk}`, { method: "POST" }),
+  )
+}
+
+export async function forgetSession(pk: string): Promise<AppStatus> {
+  return parseJson<AppStatus>(
+    await fetch(`/api/sessions/${pk}`, { method: "DELETE" }),
+  )
 }
 
 export async function getScan(): Promise<ScanStatus> {

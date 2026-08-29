@@ -19,7 +19,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { getStatus, signOut, startLogin, type AppStatus } from "@/lib/api"
+import {
+  forgetSession,
+  getStatus,
+  signOut,
+  startLogin,
+  switchSession,
+  type AppStatus,
+} from "@/lib/api"
 import { initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { AccountPage } from "@/pages/Account"
@@ -45,6 +52,8 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
+  const [switchingPk, setSwitchingPk] = useState<string | null>(null)
+  const [forgettingPk, setForgettingPk] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const next = await getStatus()
@@ -105,6 +114,42 @@ export default function App() {
     }
   }
 
+  async function onSwitch(pk: string) {
+    setSwitchingPk(pk)
+    try {
+      const next = await switchSession(pk)
+      setStatus(next)
+      setLoadError(null)
+      if (next.logged_in) setNav("scan")
+    } catch (error: unknown) {
+      setLoadError(
+        error instanceof Error ? error.message : "Could not open that account",
+      )
+      try {
+        setStatus(await getStatus())
+      } catch {
+        // keep the previous status if refresh fails
+      }
+    } finally {
+      setSwitchingPk(null)
+    }
+  }
+
+  async function onForget(pk: string) {
+    setForgettingPk(pk)
+    try {
+      const next = await forgetSession(pk)
+      setStatus(next)
+      setLoadError(null)
+    } catch (error: unknown) {
+      setLoadError(
+        error instanceof Error ? error.message : "Could not remove that account",
+      )
+    } finally {
+      setForgettingPk(null)
+    }
+  }
+
   if (!status && !loadError) {
     return (
       <AuthLayout>
@@ -113,9 +158,9 @@ export default function App() {
             <EmptyMedia variant="icon">
               <Spinner />
             </EmptyMedia>
-            <EmptyTitle>Checking session</EmptyTitle>
+            <EmptyTitle>Checking sessions</EmptyTitle>
             <EmptyDescription>
-              Looking for a saved Instagram session on this machine.
+              Looking for saved Instagram accounts on this machine.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -153,14 +198,18 @@ export default function App() {
         {loadError && (
           <Alert variant="destructive">
             <AlertCircleIcon />
-            <AlertTitle>Login failed</AlertTitle>
+            <AlertTitle>Couldn&apos;t continue</AlertTitle>
             <AlertDescription>{loadError}</AlertDescription>
           </Alert>
         )}
         <LoginForm
           status={status}
           busy={starting}
+          switchingPk={switchingPk}
+          forgettingPk={forgettingPk}
           onLogin={() => void onLogin()}
+          onSwitch={(pk) => void onSwitch(pk)}
+          onForget={(pk) => void onForget(pk)}
         />
       </AuthLayout>
     )

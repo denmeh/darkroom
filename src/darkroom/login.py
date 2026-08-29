@@ -48,5 +48,5 @@ def login_in_browser() -> tuple[str, str]:
     if not client.login_by_sessionid(sessionid):
         raise RuntimeError("instagrapi rejected the sessionid")
     me = client.account_info()
-    save_client(client)
-    return str(me.username), str(me.pk)
+    save_client(client, me.pk)
+    return me.username, me.pk

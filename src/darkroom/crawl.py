@@ -37,7 +37,7 @@ def error_message(exc: Exception) -> str:
             "Wait several hours and sign in from the official app before retrying."
         )
     if isinstance(exc, LoginRequired):
-        return "Session expired. Sign in again from the Login tab."
+        return "Session expired. Sign in again."
     if isinstance(exc, (UserNotFound, InvalidTargetUser)):
         return "No Instagram account with that username."
     if isinstance(exc, PleaseWaitFewMinutes):

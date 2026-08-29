@@ -27,9 +27,16 @@ from darkroom.scan import (
     store as scan_store,
 )
 from darkroom.session import (
-    clear_session,
+    SessionExpired,
+    current_pk,
+    deactivate,
+    delete_session,
+    list_session_pks,
     load_session_profile,
+    session_file,
     session_path,
+    sessions_dir,
+    set_current,
 )
 
 IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
@@ -61,12 +68,20 @@ class Me(BaseModel):
     avatar_url: str | None = None
 
 
+class SavedSession(BaseModel):
+    pk: str
+    username: str | None = None
+    full_name: str | None = None
+    avatar_url: str | None = None
+
+
 class AppStatus(BaseModel):
     logged_in: bool
     username: str | None
     session_path: str
     login: LoginStatus
     me: Me | None = None
+    sessions: list[SavedSession] = []
 
 
 def _me_from(profile: dict) -> Me:
@@ -100,6 +115,27 @@ def _me_from(profile: dict) -> Me:
     )
 
 
+def _saved_sessions() -> list[SavedSession]:
+    db = get_db()
+    out: list[SavedSession] = []
+    for pk in list_session_pks():
+        row = db.query_one(
+            "SELECT username, full_name FROM accounts WHERE pk = ?",
+            (pk,),
+        )
+        username = row["username"] if row else None
+        full_name = (row["full_name"] or None) if row else None
+        out.append(
+            SavedSession(
+                pk=pk,
+                username=username,
+                full_name=full_name,
+                avatar_url=f"/api/avatars/{pk}" if has_avatar(pk) else None,
+            )
+        )
+    return out
+
+
 class LoginStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -112,22 +148,33 @@ class LoginStore:
 
     def snapshot(self) -> AppStatus:
         self.ensure_validated()
+        sessions = _saved_sessions()
         with self._lock:
+            path = session_path() if self.logged_in else sessions_dir()
             return AppStatus(
                 logged_in=self.logged_in,
                 username=self.username,
-                session_path=str(session_path()),
+                session_path=str(path),
                 login=LoginStatus(state=self.state, error=self.error),
                 me=self.me,
+                sessions=sessions,
             )
 
     def ensure_validated(self) -> None:
         with self._lock:
             if self._validated:
                 return
-        profile = load_session_profile()
+        pk = current_pk()
+        profile = None
+        if pk:
+            try:
+                profile = load_session_profile(pk)
+            except SessionExpired:
+                profile = None
+            except Exception:
+                profile = None
         me = _me_from(profile) if profile else None
-        pk = profile["pk"] if profile else None
+        owner = profile["pk"] if profile else None
         with self._lock:
             if self._validated:
                 return
@@ -140,7 +187,7 @@ class LoginStore:
                 self.username = None
                 self.me = None
             self._validated = True
-        scan_store.bind(pk)
+        scan_store.bind(owner)
 
     def start(self) -> None:
         with self._lock:
@@ -154,12 +201,15 @@ class LoginStore:
     def _run(self) -> None:
         try:
             username, pk = login_in_browser()
-            profile = load_session_profile()
         except Exception as exc:
             with self._lock:
                 self.state = "error"
                 self.error = str(exc)
             return
+        try:
+            profile = load_session_profile(pk)
+        except Exception:
+            profile = None
         me = Me(pk=pk, username=username)
         if profile:
             try:
@@ -179,9 +229,59 @@ class LoginStore:
             self._validated = True
         scan_store.bind(pk)
 
+    def switch_to(self, pk: str) -> AppStatus:
+        if not pk.isdigit():
+            raise HTTPException(status_code=400, detail="Invalid account")
+        if not session_file(pk).is_file():
+            raise HTTPException(status_code=404, detail="Saved session not found")
+        with self._lock:
+            if self.state == "waiting":
+                raise HTTPException(status_code=409, detail="Login already in progress")
+        try:
+            profile = load_session_profile(pk)
+        except SessionExpired:
+            raise HTTPException(
+                status_code=401,
+                detail="That session expired. Sign in again.",
+            ) from None
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc) or "Could not reach Instagram",
+            ) from exc
+        if not profile:
+            raise HTTPException(status_code=404, detail="Saved session not found")
+        set_current(pk)
+        me = _me_from(profile)
+        with self._lock:
+            self.state = "done"
+            self.error = None
+            self.logged_in = True
+            self.username = me.username
+            self.me = me
+            self._validated = True
+        scan_store.bind(pk)
+        return self.snapshot()
+
+    def forget(self, pk: str) -> AppStatus:
+        if not pk.isdigit():
+            raise HTTPException(status_code=400, detail="Invalid account")
+        was_current = current_pk() == pk
+        delete_session(pk)
+        if was_current:
+            scan_store.bind(None)
+            with self._lock:
+                self.logged_in = False
+                self.username = None
+                self.me = None
+                self.state = "idle"
+                self.error = None
+                self._validated = True
+        return self.snapshot()
+
     def logout(self) -> AppStatus:
         scan_store.bind(None)
-        clear_session()
+        deactivate()
         with self._lock:
             self.logged_in = False
             self.username = None
@@ -230,6 +330,16 @@ def api_login_status() -> AppStatus:
 @app.post("/api/logout", response_model=AppStatus)
 def api_logout() -> AppStatus:
     return store.logout()
+
+
+@app.post("/api/sessions/{pk}", response_model=AppStatus)
+def api_switch_session(pk: str) -> AppStatus:
+    return store.switch_to(pk)
+
+
+@app.delete("/api/sessions/{pk}", response_model=AppStatus)
+def api_forget_session(pk: str) -> AppStatus:
+    return store.forget(pk)
 
 
 @app.get("/api/scan", response_model=ScanStatus)

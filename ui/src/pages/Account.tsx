@@ -61,8 +61,8 @@ export function AccountPage({
           Account
         </h1>
         <p className="text-sm text-muted-foreground">
-          Signed in on this machine. History and scans stay with this
-          Instagram account.
+          Switching accounts keeps this session saved so you can come back
+          later. History and scans stay with this Instagram account.
         </p>
       </div>
 
@@ -127,7 +127,7 @@ export function AccountPage({
             onClick={onSignOut}
           >
             {signingOut ? <Spinner /> : <LogOut />}
-            Sign out
+            Switch account
           </Button>
         </CardFooter>
       </Card>

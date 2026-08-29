@@ -6,6 +6,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 os.environ.setdefault("QT_API", "pyqt6")
 os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
@@ -19,6 +20,7 @@ from darkroom.session import APP_DIR, ensure_app_dir
 API_HOST = "127.0.0.1"
 API_PORT = 8765
 VITE_URL = "http://127.0.0.1:5173"
+ICON = Path(__file__).resolve().parent / "assets" / "icon.png"
 
 
 def wait_for(url: str, timeout_s: float = 30) -> None:
@@ -77,6 +79,7 @@ def main() -> None:
         gui="qt",
         private_mode=False,
         storage_path=str(APP_DIR / "webview"),
+        icon=str(ICON),
     )
 
 

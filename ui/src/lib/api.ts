@@ -1,5 +1,18 @@
 export type LoginState = "idle" | "waiting" | "done" | "error"
 
+export type Me = {
+  pk: string
+  username: string | null
+  full_name: string | null
+  biography: string | null
+  follower_count: number | null
+  following_count: number | null
+  media_count: number | null
+  is_private: boolean | null
+  is_verified: boolean | null
+  avatar_url: string | null
+}
+
 export type AppStatus = {
   logged_in: boolean
   username: string | null
@@ -8,6 +21,7 @@ export type AppStatus = {
     state: LoginState
     error: string | null
   }
+  me: Me | null
 }
 
 export type ScanState = "idle" | "running" | "waiting" | "done" | "error"

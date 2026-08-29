@@ -14,6 +14,7 @@ import uvicorn
 import webview
 
 from darkroom.api import app, mount_ui
+from darkroom.session import APP_DIR, ensure_app_dir
 
 API_HOST = "127.0.0.1"
 API_PORT = 8765
@@ -71,7 +72,12 @@ def main() -> None:
         height=900,
         min_size=(1100, 720),
     )
-    webview.start(gui="qt")
+    ensure_app_dir()
+    webview.start(
+        gui="qt",
+        private_mode=False,
+        storage_path=str(APP_DIR / "webview"),
+    )
 
 
 if __name__ == "__main__":

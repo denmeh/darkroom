@@ -23,6 +23,7 @@ import {
   type ListKind,
   type ReportCounts,
 } from "@/lib/api"
+import { initials } from "@/lib/format"
 
 const LISTS: { kind: ListKind; label: string; countKey: keyof ReportCounts }[] =
   [
@@ -32,15 +33,6 @@ const LISTS: { kind: ListKind; label: string; countKey: keyof ReportCounts }[] =
     { kind: "following", label: "Following", countKey: "following" },
     { kind: "followers", label: "Followers", countKey: "followers" },
   ]
-
-function initials(user: Account): string {
-  const source = (user.full_name || user.username || "?").trim()
-  const parts = source.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) {
-    return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
-  }
-  return source.slice(0, 1).toUpperCase()
-}
 
 function UserTable({
   users,
@@ -76,7 +68,9 @@ function UserTable({
                   {user.avatar_url ? (
                     <AvatarImage src={user.avatar_url} alt="" />
                   ) : null}
-                  <AvatarFallback>{initials(user)}</AvatarFallback>
+                  <AvatarFallback>
+                    {initials(user.full_name, user.username)}
+                  </AvatarFallback>
                 </Avatar>
                 {user.username ? (
                   <button

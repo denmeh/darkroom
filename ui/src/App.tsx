@@ -9,7 +9,7 @@ import {
 import { Brand } from "@/components/brand"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -20,7 +20,9 @@ import {
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { getStatus, signOut, startLogin, type AppStatus } from "@/lib/api"
+import { initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { AccountPage } from "@/pages/Account"
 import { HistoryPage } from "@/pages/History"
 import { AuthLayout, LoginForm } from "@/pages/Login"
 import { ScanPage } from "@/pages/Scan"
@@ -188,10 +190,35 @@ export default function App() {
             </Button>
           ))}
         </nav>
-        <div className="p-3">
-          <Badge variant="secondary" className="w-full justify-center">
-            @{status.username}
-          </Badge>
+        <div className="border-t p-2">
+          <Button
+            variant="ghost"
+            className={cn(
+              "h-auto w-full justify-start gap-2.5 px-2 py-2",
+              nav === "account" &&
+                "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+            onClick={() => setNav("account")}
+          >
+            <Avatar size="sm">
+              {status.me?.avatar_url ? (
+                <AvatarImage src={status.me.avatar_url} alt="" />
+              ) : null}
+              <AvatarFallback>
+                {initials(status.me?.full_name, status.username)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="flex min-w-0 flex-1 flex-col text-left">
+              <span className="truncate text-sm font-medium">
+                {status.me?.full_name || status.username || "Account"}
+              </span>
+              {status.username ? (
+                <span className="truncate text-xs text-muted-foreground">
+                  @{status.username}
+                </span>
+              ) : null}
+            </span>
+          </Button>
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col bg-background">
@@ -199,15 +226,11 @@ export default function App() {
           {nav === "scan" && <ScanPage key={status.username ?? ""} />}
           {nav === "history" && <HistoryPage key={status.username ?? ""} />}
           {nav === "account" && (
-            <div className="mx-auto max-w-sm">
-              <LoginForm
-                status={status}
-                busy={starting}
-                signingOut={signingOut}
-                onLogin={() => void onLogin()}
-                onSignOut={() => void onSignOut()}
-              />
-            </div>
+            <AccountPage
+              status={status}
+              signingOut={signingOut}
+              onSignOut={() => void onSignOut()}
+            />
           )}
         </main>
       </div>

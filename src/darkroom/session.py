@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from instagrapi import Client
 
@@ -47,13 +48,34 @@ def session_user_pk() -> str | None:
     return str(pk) if pk else None
 
 
-def validate_session() -> tuple[bool, str | None, str | None]:
-    """Return (logged_in, username, pk) for the saved session, if any."""
+def profile_from_user(info) -> dict[str, Any]:
+    pic = getattr(info, "profile_pic_url_hd", None) or getattr(
+        info, "profile_pic_url", None
+    )
+    bio = (getattr(info, "biography", None) or "").strip()
+    return {
+        "pk": str(info.pk),
+        "username": str(info.username) if info.username else None,
+        "full_name": info.full_name or None,
+        "biography": bio or None,
+        "follower_count": int(getattr(info, "follower_count", 0) or 0),
+        "following_count": int(getattr(info, "following_count", 0) or 0),
+        "media_count": int(getattr(info, "media_count", 0) or 0),
+        "is_private": bool(info.is_private),
+        "is_verified": bool(info.is_verified),
+        "profile_pic_url": str(pic) if pic else None,
+    }
+
+
+def load_session_profile() -> dict[str, Any] | None:
+    """Live Instagram profile for the saved session, or None if it is dead."""
     if not session_exists():
-        return False, None, None
+        return None
     try:
         client = load_client()
-        info = client.account_info()
-        return True, str(info.username), str(info.pk)
+        pk = client.user_id
+        if not pk:
+            pk = client.account_info().pk
+        return profile_from_user(client.user_info(pk))
     except Exception:
-        return False, None, None
+        return None

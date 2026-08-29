@@ -14,7 +14,7 @@ type ThemeProviderState = {
 }
 
 const ThemeProviderContext = createContext<ThemeProviderState>({
-  theme: "light",
+  theme: "dark",
   setTheme: () => undefined,
 })
 
@@ -30,7 +30,7 @@ function readStoredTheme(storageKey: string, fallback: Theme): Theme {
 
 export function ThemeProvider({
   children,
-  defaultTheme = "light",
+  defaultTheme = "dark",
   storageKey = "vite-ui-theme",
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() =>

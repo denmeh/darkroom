@@ -7,10 +7,11 @@
     <title>Darkroom</title>
     <script>
       try {
-        if (localStorage.getItem("vite-ui-theme") === "dark") {
-          document.documentElement.classList.add("dark")
-        }
-      } catch {}
+        var theme = localStorage.getItem("vite-ui-theme")
+        if (theme !== "light") document.documentElement.classList.add("dark")
+      } catch (e) {
+        document.documentElement.classList.add("dark")
+      }
     </script>
   </head>
   <body>

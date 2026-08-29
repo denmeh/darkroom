@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from darkroom.avatars import avatar_file, fetch_avatar, has_avatar
-from darkroom.db import get_db
+from darkroom.db import get_db, utcnow
 from darkroom.login import login_in_browser
 from darkroom.scan import (
     ListKind,
@@ -26,7 +26,11 @@ from darkroom.scan import (
     list_users,
     store as scan_store,
 )
-from darkroom.session import clear_session, session_path, validate_session
+from darkroom.session import (
+    clear_session,
+    load_session_profile,
+    session_path,
+)
 
 IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 
@@ -44,11 +48,56 @@ class OpenProfile(BaseModel):
     username: str
 
 
+class Me(BaseModel):
+    pk: str
+    username: str | None = None
+    full_name: str | None = None
+    biography: str | None = None
+    follower_count: int | None = None
+    following_count: int | None = None
+    media_count: int | None = None
+    is_private: bool | None = None
+    is_verified: bool | None = None
+    avatar_url: str | None = None
+
+
 class AppStatus(BaseModel):
     logged_in: bool
     username: str | None
     session_path: str
     login: LoginStatus
+    me: Me | None = None
+
+
+def _me_from(profile: dict) -> Me:
+    pk = profile["pk"]
+    get_db().upsert_account(
+        {
+            "pk": pk,
+            "username": profile.get("username"),
+            "full_name": profile.get("full_name") or "",
+            "is_private": profile.get("is_private"),
+            "is_verified": profile.get("is_verified"),
+            "profile_pic_url": profile.get("profile_pic_url"),
+        },
+        utcnow(),
+    )
+    url = profile.get("profile_pic_url")
+    if isinstance(url, str) and url:
+        fetch_avatar(pk, url)
+    has_pic = has_avatar(pk) or bool(url)
+    return Me(
+        pk=pk,
+        username=profile.get("username"),
+        full_name=profile.get("full_name"),
+        biography=profile.get("biography"),
+        follower_count=profile.get("follower_count"),
+        following_count=profile.get("following_count"),
+        media_count=profile.get("media_count"),
+        is_private=profile.get("is_private"),
+        is_verified=profile.get("is_verified"),
+        avatar_url=f"/api/avatars/{pk}" if has_pic else None,
+    )
 
 
 class LoginStore:
@@ -58,6 +107,7 @@ class LoginStore:
         self.error: str | None = None
         self.logged_in = False
         self.username: str | None = None
+        self.me: Me | None = None
         self._validated = False
 
     def snapshot(self) -> AppStatus:
@@ -68,17 +118,29 @@ class LoginStore:
                 username=self.username,
                 session_path=str(session_path()),
                 login=LoginStatus(state=self.state, error=self.error),
+                me=self.me,
             )
 
     def ensure_validated(self) -> None:
         with self._lock:
             if self._validated:
                 return
-            logged_in, username, pk = validate_session()
-            self.logged_in = logged_in
-            self.username = username
+        profile = load_session_profile()
+        me = _me_from(profile) if profile else None
+        pk = profile["pk"] if profile else None
+        with self._lock:
+            if self._validated:
+                return
+            if profile:
+                self.logged_in = True
+                self.username = profile.get("username")
+                self.me = me
+            else:
+                self.logged_in = False
+                self.username = None
+                self.me = None
             self._validated = True
-        scan_store.bind(pk if logged_in else None)
+        scan_store.bind(pk)
 
     def start(self) -> None:
         with self._lock:
@@ -92,16 +154,28 @@ class LoginStore:
     def _run(self) -> None:
         try:
             username, pk = login_in_browser()
+            profile = load_session_profile()
         except Exception as exc:
             with self._lock:
                 self.state = "error"
                 self.error = str(exc)
             return
+        me = Me(pk=pk, username=username)
+        if profile:
+            try:
+                me = _me_from(profile)
+            except Exception:
+                me = Me(
+                    pk=profile["pk"],
+                    username=profile.get("username") or username,
+                    full_name=profile.get("full_name"),
+                )
         with self._lock:
             self.state = "done"
             self.error = None
             self.logged_in = True
-            self.username = username
+            self.username = me.username or username
+            self.me = me
             self._validated = True
         scan_store.bind(pk)
 
@@ -111,6 +185,7 @@ class LoginStore:
         with self._lock:
             self.logged_in = False
             self.username = None
+            self.me = None
             self.state = "idle"
             self.error = None
             self._validated = True

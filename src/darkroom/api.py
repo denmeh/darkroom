@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from darkroom.avatars import avatar_file, fetch_avatar, has_avatar
+from darkroom.db import get_db
 from darkroom.login import login_in_browser
 from darkroom.scan import (
     ListKind,
@@ -163,6 +165,22 @@ def api_report_users(
     limit: int = 100,
 ) -> UserPage:
     return list_users(kind, offset=offset, limit=limit)
+
+
+@app.get("/api/avatars/{pk}")
+def api_avatar(pk: str) -> FileResponse:
+    if not pk.isdigit():
+        raise HTTPException(status_code=404, detail="Not found")
+    headers = {"Cache-Control": "private, max-age=86400"}
+    if has_avatar(pk):
+        return FileResponse(avatar_file(pk), media_type="image/jpeg", headers=headers)
+    row = get_db().query_one("SELECT profile_pic_url FROM accounts WHERE pk = ?", (pk,))
+    url = row["profile_pic_url"] if row else None
+    if url:
+        path = fetch_avatar(pk, url)
+        if path is not None:
+            return FileResponse(path, media_type="image/jpeg", headers=headers)
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 def mount_ui() -> None:

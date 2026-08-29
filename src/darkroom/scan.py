@@ -14,6 +14,7 @@ from instagrapi.exceptions import (
 )
 from pydantic import BaseModel
 
+from darkroom.avatars import has_avatar, prefetch_avatar
 from darkroom.crawl import (
     DELAY_RANGE,
     MAX_SOFT_BLOCKS,
@@ -41,6 +42,7 @@ class AccountOut(BaseModel):
     full_name: str | None = None
     is_private: bool | None = None
     is_verified: bool | None = None
+    avatar_url: str | None = None
 
 
 class ScanStatus(BaseModel):
@@ -89,12 +91,16 @@ class UserPage(BaseModel):
 
 
 def _row_account(row) -> AccountOut:
+    pk = row["pk"]
+    pic = row["profile_pic_url"]
+    has_pic = bool(pic) or has_avatar(pk)
     return AccountOut(
-        pk=row["pk"],
+        pk=pk,
         username=row["username"],
         full_name=row["full_name"],
         is_private=bool(row["is_private"]) if row["is_private"] is not None else None,
         is_verified=bool(row["is_verified"]) if row["is_verified"] is not None else None,
+        avatar_url=f"/api/avatars/{pk}" if has_pic else None,
     )
 
 
@@ -357,6 +363,7 @@ class ScanStore:
                     continue
                 seen.add(item["pk"])
                 db.upsert_account(item, now)
+                prefetch_avatar(item["pk"], item.get("profile_pic_url"))
                 member_rows.append((scan_id, item["pk"], kind))
                 added += 1
             if member_rows:

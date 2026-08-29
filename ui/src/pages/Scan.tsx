@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -82,6 +83,15 @@ const LISTS: { kind: ListKind; label: string }[] = [
   { kind: "followers", label: "Followers" },
 ]
 
+function initials(user: Account): string {
+  const source = (user.full_name || user.username || "?").trim()
+  const parts = source.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
+  }
+  return source.slice(0, 1).toUpperCase()
+}
+
 function UserTable({ users }: { users: Account[] }) {
   if (users.length === 0) {
     return (
@@ -103,7 +113,15 @@ function UserTable({ users }: { users: Account[] }) {
         {users.map((user) => (
           <TableRow key={user.pk}>
             <TableCell className="font-medium">
-              @{user.username ?? user.pk}
+              <div className="flex items-center gap-2.5">
+                <Avatar size="sm">
+                  {user.avatar_url ? (
+                    <AvatarImage src={user.avatar_url} alt="" />
+                  ) : null}
+                  <AvatarFallback>{initials(user)}</AvatarFallback>
+                </Avatar>
+                <span>@{user.username ?? user.pk}</span>
+              </div>
             </TableCell>
             <TableCell className="text-muted-foreground">
               {user.full_name || "—"}

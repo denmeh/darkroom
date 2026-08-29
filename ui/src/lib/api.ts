@@ -57,6 +57,7 @@ export type Account = {
   full_name: string | null
   is_private: boolean | null
   is_verified: boolean | null
+  avatar_url: string | null
 }
 
 export type ListKind =

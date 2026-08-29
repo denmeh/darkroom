@@ -19,13 +19,14 @@ MAX_SOFT_BLOCKS = 3
 
 
 def dump_user(user) -> dict:
-    # Skip profile_pic_url: Instagram CDN links expire within hours.
+    pic = getattr(user, "profile_pic_url", None)
     return {
         "pk": str(user.pk),
         "username": user.username,
         "full_name": user.full_name or "",
         "is_private": user.is_private,
         "is_verified": user.is_verified,
+        "profile_pic_url": str(pic) if pic else None,
     }
 
 

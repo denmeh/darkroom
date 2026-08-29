@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   full_name TEXT,
   is_private INTEGER,
   is_verified INTEGER,
+  profile_pic_url TEXT,
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL
 );
@@ -80,7 +81,13 @@ class Database:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(accounts)")}
+        if "profile_pic_url" not in cols:
+            self._conn.execute("ALTER TABLE accounts ADD COLUMN profile_pic_url TEXT")
 
     def execute(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:
         with self._lock:
@@ -107,7 +114,8 @@ class Database:
             self.execute(
                 """
                 UPDATE accounts
-                SET username = ?, full_name = ?, is_private = ?, is_verified = ?, last_seen_at = ?
+                SET username = ?, full_name = ?, is_private = ?, is_verified = ?,
+                    last_seen_at = ?, profile_pic_url = COALESCE(?, profile_pic_url)
                 WHERE pk = ?
                 """,
                 (
@@ -116,14 +124,18 @@ class Database:
                     1 if user.get("is_private") else 0,
                     1 if user.get("is_verified") else 0,
                     seen_at,
+                    user.get("profile_pic_url"),
                     user["pk"],
                 ),
             )
             return
         self.execute(
             """
-            INSERT INTO accounts (pk, username, full_name, is_private, is_verified, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO accounts (
+              pk, username, full_name, is_private, is_verified, profile_pic_url,
+              first_seen_at, last_seen_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user["pk"],
@@ -131,6 +143,7 @@ class Database:
                 user.get("full_name") or "",
                 1 if user.get("is_private") else 0,
                 1 if user.get("is_verified") else 0,
+                user.get("profile_pic_url"),
                 seen_at,
                 seen_at,
             ),

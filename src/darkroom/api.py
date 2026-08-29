@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import threading
+import webbrowser
 from pathlib import Path
 from typing import Literal
 
@@ -19,12 +21,14 @@ from darkroom.scan import (
     ScanStatus,
     ScanSummary,
     UserPage,
-    latest_report,
+    get_report,
     list_scans,
     list_users,
     store as scan_store,
 )
 from darkroom.session import clear_session, session_path, validate_session
+
+IG_USERNAME = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 
 LoginState = Literal["idle", "waiting", "done", "error"]
 
@@ -34,6 +38,10 @@ UI_DIST = Path(__file__).resolve().parent.parent.parent / "ui" / "dist"
 class LoginStatus(BaseModel):
     state: LoginState
     error: str | None = None
+
+
+class OpenProfile(BaseModel):
+    username: str
 
 
 class AppStatus(BaseModel):
@@ -164,8 +172,8 @@ def api_scan_stop() -> ScanStatus:
 
 
 @app.get("/api/report", response_model=Report)
-def api_report() -> Report:
-    return latest_report()
+def api_report(scan_id: int | None = None) -> Report:
+    return get_report(scan_id)
 
 
 @app.get("/api/scans", response_model=list[ScanSummary])
@@ -178,8 +186,19 @@ def api_report_users(
     kind: ListKind = "unfollowers",
     offset: int = 0,
     limit: int = 100,
+    scan_id: int | None = None,
+    q: str | None = None,
 ) -> UserPage:
-    return list_users(kind, offset=offset, limit=limit)
+    return list_users(kind, offset=offset, limit=limit, scan_id=scan_id, q=q)
+
+
+@app.post("/api/open-profile")
+def api_open_profile(body: OpenProfile) -> dict[str, bool]:
+    username = body.username.strip().lstrip("@")
+    if not IG_USERNAME.fullmatch(username):
+        raise HTTPException(status_code=400, detail="Invalid username")
+    webbrowser.open(f"https://www.instagram.com/{username}/")
+    return {"ok": True}
 
 
 @app.get("/api/avatars/{pk}")

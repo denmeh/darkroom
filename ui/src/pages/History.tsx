@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react"
+import { AlertCircleIcon, ArrowLeft } from "lucide-react"
 
+import { UserLists } from "@/components/user-lists"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import {
   Table,
   TableBody,
@@ -8,17 +12,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { getScans, type ScanSummary } from "@/lib/api"
+import { formatWhen } from "@/lib/format"
+import {
+  getScans,
+  type ReportCounts,
+  type ScanSummary,
+} from "@/lib/api"
 
-function formatWhen(iso: string | null): string {
-  if (!iso) return "—"
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  return date.toLocaleString()
+function countsFrom(scan: ScanSummary): ReportCounts {
+  return {
+    following: scan.following_fetched,
+    followers: scan.followers_fetched,
+    unfollowers: scan.unfollowers_count ?? 0,
+    vanished: scan.vanished_count ?? 0,
+    new_following: scan.new_following_count ?? 0,
+  }
 }
 
 export function HistoryPage() {
   const [scans, setScans] = useState<ScanSummary[] | null>(null)
+  const [selected, setSelected] = useState<ScanSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -37,6 +50,54 @@ export function HistoryPage() {
     }
   }, [])
 
+  if (selected) {
+    const incomplete = selected.state !== "done"
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3">
+          <Button
+            variant="ghost"
+            className="-ml-2 w-fit"
+            onClick={() => setSelected(null)}
+          >
+            <ArrowLeft />
+            All scans
+          </Button>
+          <div className="flex flex-col gap-1">
+            <h1 className="font-heading text-xl font-medium tracking-tight">
+              Scan {formatWhen(selected.finished_at ?? selected.started_at)}
+            </h1>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              Following {selected.following_fetched.toLocaleString()}
+              {" · "}
+              Followers {selected.followers_fetched.toLocaleString()}
+              {" · "}
+              Unfollowers {(selected.unfollowers_count ?? 0).toLocaleString()}
+              {" · "}
+              Vanished {(selected.vanished_count ?? 0).toLocaleString()}
+              {" · "}
+              New {(selected.new_following_count ?? 0).toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        {incomplete && (
+          <Alert>
+            <AlertCircleIcon />
+            <AlertTitle>Incomplete scan</AlertTitle>
+            <AlertDescription>
+              This scan did not finish. Following and follower lists may be
+              partial; unfollower and vanished counts are only written when a
+              scan completes.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <UserLists scanId={selected.id} counts={countsFrom(selected)} />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
@@ -45,8 +106,8 @@ export function HistoryPage() {
         </h1>
         <p className="max-w-xl text-sm text-muted-foreground">
           Every completed scan stores the full following and follower lists.
-          Vanished accounts only appear once there is a previous snapshot to
-          compare against.
+          Open a row to search that snapshot. Vanished accounts only appear
+          once there is a previous snapshot to compare against.
         </p>
       </div>
 
@@ -69,7 +130,19 @@ export function HistoryPage() {
           </TableHeader>
           <TableBody>
             {(scans ?? []).map((scan) => (
-              <TableRow key={scan.id}>
+              <TableRow
+                key={scan.id}
+                className="cursor-pointer"
+                tabIndex={0}
+                aria-label={`View scan from ${formatWhen(scan.finished_at ?? scan.started_at)}`}
+                onClick={() => setSelected(scan)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    setSelected(scan)
+                  }
+                }}
+              >
                 <TableCell>{formatWhen(scan.finished_at ?? scan.started_at)}</TableCell>
                 <TableCell className="capitalize">{scan.state}</TableCell>
                 <TableCell className="text-right tabular-nums">

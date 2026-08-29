@@ -78,7 +78,7 @@ class ReportCounts(BaseModel):
 
 
 class Report(BaseModel):
-    latest: ScanSummary | None = None
+    scan: ScanSummary | None = None
     previous: ScanSummary | None = None
     counts: ReportCounts = ReportCounts()
 
@@ -87,6 +87,7 @@ class UserPage(BaseModel):
     kind: ListKind
     total: int
     offset: int
+    scan_id: int | None = None
     users: list[AccountOut]
 
 
@@ -121,6 +122,20 @@ def _row_summary(row) -> ScanSummary:
 def _count(db: Database, sql: str, params: tuple = ()) -> int:
     row = db.query_one(sql, params)
     return int(row["n"]) if row else 0
+
+
+def _like_filter(q: str | None) -> tuple[str, tuple[str, ...]]:
+    needle = (q or "").strip()
+    if not needle:
+        return "", ()
+    escaped = (
+        needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+    pattern = f"%{escaped}%"
+    sql = (
+        " AND (a.username LIKE ? ESCAPE '\\' OR a.full_name LIKE ? ESCAPE '\\')"
+    )
+    return sql, (pattern, pattern)
 
 
 def _member_pks(db: Database, scan_id: int, list_name: str) -> set[str]:
@@ -453,26 +468,31 @@ class ScanStore:
         )
 
 
-def latest_report() -> Report:
+def get_report(scan_id: int | None = None) -> Report:
     db = get_db()
-    latest = db.query_one(
-        "SELECT * FROM scans WHERE state = 'done' ORDER BY id DESC LIMIT 1"
-    )
-    if latest is None:
-        return Report()
+    if scan_id is not None:
+        row = db.query_one("SELECT * FROM scans WHERE id = ?", (scan_id,))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Scan not found")
+    else:
+        row = db.query_one(
+            "SELECT * FROM scans WHERE state = 'done' ORDER BY id DESC LIMIT 1"
+        )
+        if row is None:
+            return Report()
     previous = db.query_one(
         "SELECT * FROM scans WHERE state = 'done' AND id < ? ORDER BY id DESC LIMIT 1",
-        (latest["id"],),
+        (row["id"],),
     )
     return Report(
-        latest=_row_summary(latest),
+        scan=_row_summary(row),
         previous=_row_summary(previous) if previous else None,
         counts=ReportCounts(
-            following=latest["following_fetched"],
-            followers=latest["followers_fetched"],
-            unfollowers=latest["unfollowers_count"] or 0,
-            vanished=latest["vanished_count"] or 0,
-            new_following=latest["new_following_count"] or 0,
+            following=row["following_fetched"] or 0,
+            followers=row["followers_fetched"] or 0,
+            unfollowers=row["unfollowers_count"] or 0,
+            vanished=row["vanished_count"] or 0,
+            new_following=row["new_following_count"] or 0,
         ),
     )
 
@@ -483,54 +503,77 @@ def list_scans() -> list[ScanSummary]:
     return [_row_summary(row) for row in rows]
 
 
-def list_users(kind: ListKind, offset: int = 0, limit: int = 100) -> UserPage:
+def list_users(
+    kind: ListKind,
+    offset: int = 0,
+    limit: int = 100,
+    scan_id: int | None = None,
+    q: str | None = None,
+) -> UserPage:
     db = get_db()
-    latest = db.query_one(
-        "SELECT id FROM scans WHERE state = 'done' ORDER BY id DESC LIMIT 1"
-    )
-    if latest is None:
-        return UserPage(kind=kind, total=0, offset=offset, users=[])
-    scan_id = latest["id"]
+    if scan_id is not None:
+        row = db.query_one("SELECT id FROM scans WHERE id = ?", (scan_id,))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        sid = row["id"]
+    else:
+        latest = db.query_one(
+            "SELECT id FROM scans WHERE state = 'done' ORDER BY id DESC LIMIT 1"
+        )
+        if latest is None:
+            return UserPage(kind=kind, total=0, offset=offset, users=[])
+        sid = latest["id"]
+
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    search_sql, search_params = _like_filter(q)
 
     if kind in ("unfollowers", "vanished", "new_following"):
+        event_kind = "unfollower" if kind == "unfollowers" else kind
         total = _count(
             db,
-            "SELECT COUNT(*) AS n FROM events WHERE scan_id = ? AND kind = ?",
-            (scan_id, kind if kind != "unfollowers" else "unfollower"),
+            f"""
+            SELECT COUNT(*) AS n FROM events e
+            JOIN accounts a ON a.pk = e.pk
+            WHERE e.scan_id = ? AND e.kind = ?{search_sql}
+            """,
+            (sid, event_kind, *search_params),
         )
-        event_kind = "unfollower" if kind == "unfollowers" else kind
         rows = db.query(
-            """
+            f"""
             SELECT a.* FROM events e
             JOIN accounts a ON a.pk = e.pk
-            WHERE e.scan_id = ? AND e.kind = ?
+            WHERE e.scan_id = ? AND e.kind = ?{search_sql}
             ORDER BY a.username COLLATE NOCASE
             LIMIT ? OFFSET ?
             """,
-            (scan_id, event_kind, limit, offset),
+            (sid, event_kind, *search_params, limit, offset),
         )
     else:
         total = _count(
             db,
-            "SELECT COUNT(*) AS n FROM scan_members WHERE scan_id = ? AND list = ?",
-            (scan_id, kind),
+            f"""
+            SELECT COUNT(*) AS n FROM scan_members m
+            JOIN accounts a ON a.pk = m.pk
+            WHERE m.scan_id = ? AND m.list = ?{search_sql}
+            """,
+            (sid, kind, *search_params),
         )
         rows = db.query(
-            """
+            f"""
             SELECT a.* FROM scan_members m
             JOIN accounts a ON a.pk = m.pk
-            WHERE m.scan_id = ? AND m.list = ?
+            WHERE m.scan_id = ? AND m.list = ?{search_sql}
             ORDER BY a.username COLLATE NOCASE
             LIMIT ? OFFSET ?
             """,
-            (scan_id, kind, limit, offset),
+            (sid, kind, *search_params, limit, offset),
         )
     return UserPage(
         kind=kind,
         total=total,
         offset=offset,
+        scan_id=sid,
         users=[_row_account(row) for row in rows],
     )
 

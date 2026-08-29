@@ -46,7 +46,7 @@ export type ReportCounts = {
 }
 
 export type Report = {
-  latest: ScanSummary | null
+  scan: ScanSummary | null
   previous: ScanSummary | null
   counts: ReportCounts
 }
@@ -71,6 +71,7 @@ export type UserPage = {
   kind: ListKind
   total: number
   offset: number
+  scan_id: number | null
   users: Account[]
 }
 
@@ -122,8 +123,13 @@ export async function stopScan(): Promise<ScanStatus> {
   return parseJson<ScanStatus>(await fetch("/api/scan/stop", { method: "POST" }))
 }
 
-export async function getReport(): Promise<Report> {
-  return parseJson<Report>(await fetch("/api/report"))
+export async function getReport(scanId?: number | null): Promise<Report> {
+  const params = new URLSearchParams()
+  if (scanId != null) params.set("scan_id", String(scanId))
+  const query = params.toString()
+  return parseJson<Report>(
+    await fetch(query ? `/api/report?${query}` : "/api/report"),
+  )
 }
 
 export async function getScans(): Promise<ScanSummary[]> {
@@ -134,11 +140,25 @@ export async function getReportUsers(
   kind: ListKind,
   offset = 0,
   limit = 100,
+  scanId?: number | null,
+  q?: string,
 ): Promise<UserPage> {
   const params = new URLSearchParams({
     kind,
     offset: String(offset),
     limit: String(limit),
   })
+  if (scanId != null) params.set("scan_id", String(scanId))
+  if (q) params.set("q", q)
   return parseJson<UserPage>(await fetch(`/api/report/users?${params}`))
+}
+
+export async function openProfile(username: string): Promise<void> {
+  await parseJson<{ ok: boolean }>(
+    await fetch("/api/open-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    }),
+  )
 }

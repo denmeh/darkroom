@@ -1,15 +1,26 @@
 python := ".venv/bin/python"
-pip := ".venv/bin/pip"
 
 # List available recipes
 default:
     @just --list
 
-# Create .venv if needed and install dependencies from requirements.txt
+# Create .venv, install Python + UI deps, download Chromium
 install:
-    python3 -m venv .venv
-    {{pip}} install -r requirements.txt
+    python3 -m venv --clear .venv
+    {{python}} -m pip install -e .
+    {{python}} -m playwright install chromium
+    npm --prefix ui install
 
-# Run main.py using the project virtualenv
+# Vite HMR in a native window (API on :8765)
+dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    npm --prefix ui run dev &
+    vite_pid=$!
+    trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+    {{python}} -m darkroom --dev
+
+# Production UI build, then the desktop window
 run:
-    {{python}} main.py
+    npm --prefix ui run build
+    {{python}} -m darkroom

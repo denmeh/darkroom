@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 .env
 session.json
+session2.json
 *.session
+.playwright-profile/
+ui/node_modules/
+ui/dist/

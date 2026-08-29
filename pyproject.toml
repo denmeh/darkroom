@@ -1,0 +1,26 @@
+[project]
+name = "darkroom"
+version = "0.1.0"
+description = "Desktop Instagram session app"
+requires-python = ">=3.11"
+dependencies = [
+    "instagrapi==2.18.18",
+    "curl_cffi==0.16.2",
+    "playwright==1.62.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pywebview>=5.4",
+    "PyQt6>=6.7",
+    "PyQt6-WebEngine>=6.7",
+    "QtPy>=2.4",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+darkroom = "darkroom.__main__:main"

@@ -1,0 +1,43 @@
+from pathlib import Path
+
+from instagrapi import Client
+
+APP_DIR = Path.home() / "darkroom"
+SESSION_FILE = APP_DIR / "session.json"
+
+
+def session_path() -> Path:
+    return SESSION_FILE
+
+
+def ensure_app_dir() -> Path:
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    return APP_DIR
+
+
+def session_exists() -> bool:
+    return SESSION_FILE.is_file()
+
+
+def save_client(client: Client) -> Path:
+    ensure_app_dir()
+    client.dump_settings(str(SESSION_FILE))
+    return SESSION_FILE
+
+
+def load_client() -> Client:
+    client = Client()
+    client.load_settings(str(SESSION_FILE))
+    return client
+
+
+def validate_session() -> tuple[bool, str | None]:
+    """Return (logged_in, username) for the saved session, if any."""
+    if not session_exists():
+        return False, None
+    try:
+        client = load_client()
+        info = client.account_info()
+        return True, str(info.username)
+    except Exception:
+        return False, None

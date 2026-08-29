@@ -24,7 +24,7 @@ from darkroom.crawl import (
     fetch_page,
 )
 from darkroom.db import Database, get_db, utcnow
-from darkroom.session import load_client, session_exists
+from darkroom.session import load_client, session_user_pk
 
 # A scan is two paced crawls of the logged-in account (following, then
 # followers), stored in SQLite. Unfollowers = following − followers.
@@ -146,6 +146,23 @@ def _member_pks(db: Database, scan_id: int, list_name: str) -> set[str]:
     return {row["pk"] for row in rows}
 
 
+def _require_owner() -> str:
+    pk = session_user_pk()
+    if not pk:
+        raise HTTPException(status_code=401, detail="Not logged in")
+    return pk
+
+
+def _owned_scan(db: Database, scan_id: int, owner_pk: str):
+    row = db.query_one(
+        "SELECT * FROM scans WHERE id = ? AND owner_pk = ?",
+        (scan_id, owner_pk),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return row
+
+
 class ScanStore:
     """One scan at a time: crawl my following, then my followers, then diff vs last scan."""
 
@@ -161,11 +178,42 @@ class ScanStore:
         self.followers_fetched = 0
         self.followers_total: int | None = None
         self.error: str | None = None
+        self._owner_pk: str | None = session_user_pk()
         self._hydrate_from_db()
 
+    def bind(self, owner_pk: str | None) -> None:
+        """Point this store at a logged-in account, or clear it on logout."""
+        with self._lock:
+            same = owner_pk == self._owner_pk
+            running = self.state in ("running", "waiting")
+        if same:
+            return
+        if running:
+            self._stop.set()
+        with self._lock:
+            if owner_pk == self._owner_pk:
+                return
+            self._owner_pk = owner_pk
+            self.state = "idle"
+            self.phase = None
+            self.scan_id = None
+            self.wait_until = None
+            self.following_fetched = 0
+            self.following_total = None
+            self.followers_fetched = 0
+            self.followers_total = None
+            self.error = None
+            self._hydrate_from_db()
+            self._stop.clear()
+
     def _hydrate_from_db(self) -> None:
+        if not self._owner_pk:
+            return
         db = get_db()
-        row = db.query_one("SELECT * FROM scans ORDER BY id DESC LIMIT 1")
+        row = db.query_one(
+            "SELECT * FROM scans WHERE owner_pk = ? ORDER BY id DESC LIMIT 1",
+            (self._owner_pk,),
+        )
         if row is None:
             return
         self.scan_id = row["id"]
@@ -198,11 +246,11 @@ class ScanStore:
             )
 
     def start(self) -> ScanStatus:
-        if not session_exists():
-            raise HTTPException(status_code=401, detail="Not logged in")
+        owner = _require_owner()
         with self._lock:
             if self.state in ("running", "waiting"):
                 raise HTTPException(status_code=409, detail="A scan is already running")
+            self._owner_pk = owner
             self._stop.clear()
             self.state = "running"
             self.error = None
@@ -215,44 +263,55 @@ class ScanStore:
         self._stop.set()
         return self.snapshot()
 
-    def _set(self, **kwargs) -> None:
+    def _set(self, owner: str | None = None, **kwargs) -> None:
         with self._lock:
+            if owner is not None and self._owner_pk != owner:
+                return
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-    def _wait(self, seconds: float) -> bool:
+    def _wait(self, owner: str, seconds: float) -> bool:
         deadline = time.monotonic() + seconds
-        self._set(state="waiting", wait_until=deadline)
+        self._set(owner, state="waiting", wait_until=deadline)
         while time.monotonic() < deadline:
-            if self._stop.is_set():
+            if self._stop.is_set() or self._owner_pk != owner:
                 return True
             self._stop.wait(timeout=min(1.0, deadline - time.monotonic()))
-        self._set(state="running", wait_until=None)
-        return self._stop.is_set()
+        self._set(owner, state="running", wait_until=None)
+        return self._stop.is_set() or self._owner_pk != owner
 
     def _run(self) -> None:
         db = get_db()
+        owner = self._owner_pk
+        active: list[int] = []
         try:
-            self._scan(db)
+            self._scan(db, owner, active)
         except Exception as exc:
-            self._set(state="error", error=error_message(exc), wait_until=None)
-            if self.scan_id:
+            msg = error_message(exc)
+            self._set(owner, state="error", error=msg, wait_until=None)
+            if active:
                 db.execute(
                     "UPDATE scans SET state = 'error', error = ? WHERE id = ?",
-                    (error_message(exc), self.scan_id),
+                    (msg, active[0]),
                 )
 
-    def _scan(self, db: Database) -> None:
+    def _scan(self, db: Database, owner: str | None, active: list[int]) -> None:
         client = load_client()
         client.delay_range = DELAY_RANGE
 
         me = client.account_info()
-        user_id = me.pk
+        user_id = str(me.pk)
+        if owner and user_id != owner:
+            return
+        owner = user_id
         info = client.user_info(user_id)
         following_total = info.following_count
         followers_total = info.follower_count
 
-        latest_row = db.query_one("SELECT * FROM scans ORDER BY id DESC LIMIT 1")
+        latest_row = db.query_one(
+            "SELECT * FROM scans WHERE owner_pk = ? ORDER BY id DESC LIMIT 1",
+            (owner,),
+        )
         resume = latest_row is not None and latest_row["finished_at"] is None
 
         if resume and latest_row:
@@ -271,10 +330,12 @@ class ScanStore:
         else:
             cur = db.execute(
                 """
-                INSERT INTO scans (started_at, state, phase, following_total, followers_total)
-                VALUES (?, 'running', 'following', ?, ?)
+                INSERT INTO scans (
+                  started_at, state, phase, following_total, followers_total, owner_pk
+                )
+                VALUES (?, 'running', 'following', ?, ?, ?)
                 """,
-                (utcnow(), following_total, followers_total),
+                (utcnow(), following_total, followers_total, owner),
             )
             scan_id = cur.lastrowid
             if scan_id is None:
@@ -283,7 +344,9 @@ class ScanStore:
             following_cursor = ""
             followers_cursor = ""
 
+        active.append(scan_id)
         self._set(
+            owner,
             scan_id=scan_id,
             following_total=following_total,
             followers_total=followers_total,
@@ -301,7 +364,7 @@ class ScanStore:
 
         if phase == "following":
             if not self._crawl_list(
-                db, client, scan_id, user_id, "following", following_cursor
+                db, client, owner, scan_id, user_id, "following", following_cursor
             ):
                 return
             phase = "followers"
@@ -309,32 +372,33 @@ class ScanStore:
 
         if phase == "followers":
             if not self._crawl_list(
-                db, client, scan_id, user_id, "followers", followers_cursor
+                db, client, owner, scan_id, user_id, "followers", followers_cursor
             ):
                 return
 
-        self._set(phase="comparing")
+        self._set(owner, phase="comparing")
         db.execute("UPDATE scans SET phase = 'comparing' WHERE id = ?", (scan_id,))
-        self._finalize(db, scan_id)
-        self._set(state="done", phase=None, wait_until=None, error=None)
+        self._finalize(db, owner, scan_id)
+        self._set(owner, state="done", phase=None, wait_until=None, error=None)
 
     def _crawl_list(
         self,
         db: Database,
         client,
+        owner: str,
         scan_id: int,
         user_id: str,
         kind: str,
         cursor: str,
     ) -> bool:
         """Return False if we should abort the whole scan (fatal / stop)."""
-        self._set(phase=kind)  # type: ignore[arg-type]
+        self._set(owner, phase=kind)  # type: ignore[arg-type]
         fetched_field = f"{kind}_fetched"
         cursor_field = f"{kind}_cursor"
         seen = _member_pks(db, scan_id, kind)
         soft_blocks = 0
 
-        while not self._stop.is_set():
+        while not self._stop.is_set() and self._owner_pk == owner:
             try:
                 chunk, next_id = fetch_page(client, kind, user_id, cursor)
             except FeedbackRequired as exc:
@@ -343,14 +407,14 @@ class ScanStore:
                     "UPDATE scans SET state = 'error', error = ? WHERE id = ?",
                     (msg, scan_id),
                 )
-                self._set(state="error", error=msg, wait_until=None)
+                self._set(owner, state="error", error=msg, wait_until=None)
                 return False
             except LoginRequired as exc:
                 db.execute(
                     "UPDATE scans SET state = 'error', error = ? WHERE id = ?",
                     (error_message(exc), scan_id),
                 )
-                self._set(state="error", error=error_message(exc), wait_until=None)
+                self._set(owner, state="error", error=error_message(exc), wait_until=None)
                 return False
             except (PleaseWaitFewMinutes, RateLimitError, ClientThrottledError):
                 soft_blocks += 1
@@ -363,14 +427,13 @@ class ScanStore:
                         "UPDATE scans SET state = 'error', error = ? WHERE id = ?",
                         (msg, scan_id),
                     )
-                    self._set(state="error", error=msg, wait_until=None)
+                    self._set(owner, state="error", error=msg, wait_until=None)
                     return False
-                if self._wait(SOFT_BLOCK_WAIT_S):
+                if self._wait(owner, SOFT_BLOCK_WAIT_S):
                     break
                 continue
 
             now = utcnow()
-            added = 0
             member_rows = []
             for user in chunk:
                 item = dump_user(user)
@@ -380,7 +443,6 @@ class ScanStore:
                 db.upsert_account(item, now)
                 prefetch_avatar(item["pk"], item.get("profile_pic_url"))
                 member_rows.append((scan_id, item["pk"], kind))
-                added += 1
             if member_rows:
                 db.executemany(
                     "INSERT OR IGNORE INTO scan_members (scan_id, pk, list) VALUES (?, ?, ?)",
@@ -395,23 +457,26 @@ class ScanStore:
                 f"UPDATE scans SET {cursor_field} = ?, {fetched_field} = ? WHERE id = ?",
                 (cursor, count, scan_id),
             )
-            self._set(**{fetched_field: count})
+            self._set(owner, **{fetched_field: count})
 
             if exhausted:
                 return True
 
+        if self._owner_pk != owner:
+            return False
         db.execute(
             "UPDATE scans SET state = 'error', error = ? WHERE id = ?",
             ("Stopped. Run scan again to resume.", scan_id),
         )
         self._set(
+            owner,
             state="idle",
             error="Stopped. Run scan again to resume.",
             wait_until=None,
         )
         return False
 
-    def _finalize(self, db: Database, scan_id: int) -> None:
+    def _finalize(self, db: Database, owner: str, scan_id: int) -> None:
         following = _member_pks(db, scan_id, "following")
         followers = _member_pks(db, scan_id, "followers")
         unfollowers = following - followers
@@ -419,10 +484,10 @@ class ScanStore:
         prev = db.query_one(
             """
             SELECT id FROM scans
-            WHERE state = 'done' AND id < ?
+            WHERE state = 'done' AND id < ? AND owner_pk = ?
             ORDER BY id DESC LIMIT 1
             """,
-            (scan_id,),
+            (scan_id, owner),
         )
         vanished: set[str] = set()
         new_following: set[str] = set()
@@ -469,20 +534,28 @@ class ScanStore:
 
 
 def get_report(scan_id: int | None = None) -> Report:
+    owner = _require_owner()
     db = get_db()
     if scan_id is not None:
-        row = db.query_one("SELECT * FROM scans WHERE id = ?", (scan_id,))
-        if row is None:
-            raise HTTPException(status_code=404, detail="Scan not found")
+        row = _owned_scan(db, scan_id, owner)
     else:
         row = db.query_one(
-            "SELECT * FROM scans WHERE state = 'done' ORDER BY id DESC LIMIT 1"
+            """
+            SELECT * FROM scans
+            WHERE state = 'done' AND owner_pk = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (owner,),
         )
         if row is None:
             return Report()
     previous = db.query_one(
-        "SELECT * FROM scans WHERE state = 'done' AND id < ? ORDER BY id DESC LIMIT 1",
-        (row["id"],),
+        """
+        SELECT * FROM scans
+        WHERE state = 'done' AND id < ? AND owner_pk = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (row["id"], owner),
     )
     return Report(
         scan=_row_summary(row),
@@ -498,8 +571,12 @@ def get_report(scan_id: int | None = None) -> Report:
 
 
 def list_scans() -> list[ScanSummary]:
+    owner = _require_owner()
     db = get_db()
-    rows = db.query("SELECT * FROM scans ORDER BY id DESC LIMIT 50")
+    rows = db.query(
+        "SELECT * FROM scans WHERE owner_pk = ? ORDER BY id DESC LIMIT 50",
+        (owner,),
+    )
     return [_row_summary(row) for row in rows]
 
 
@@ -511,14 +588,18 @@ def list_users(
     q: str | None = None,
 ) -> UserPage:
     db = get_db()
+    owner = _require_owner()
     if scan_id is not None:
-        row = db.query_one("SELECT id FROM scans WHERE id = ?", (scan_id,))
-        if row is None:
-            raise HTTPException(status_code=404, detail="Scan not found")
+        row = _owned_scan(db, scan_id, owner)
         sid = row["id"]
     else:
         latest = db.query_one(
-            "SELECT id FROM scans WHERE state = 'done' ORDER BY id DESC LIMIT 1"
+            """
+            SELECT id FROM scans
+            WHERE state = 'done' AND owner_pk = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (owner,),
         )
         if latest is None:
             return UserPage(kind=kind, total=0, offset=offset, users=[])

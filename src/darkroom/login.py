@@ -30,8 +30,8 @@ def wait_for_sessionid(context, timeout_s: float = TIMEOUT_S) -> str:
     )
 
 
-def login_in_browser() -> str:
-    """Open Chromium, wait for Instagram login, save session. Return username."""
+def login_in_browser() -> tuple[str, str]:
+    """Open Chromium, wait for Instagram login, save session. Return (username, pk)."""
     with tempfile.TemporaryDirectory(prefix="darkroom-login-") as profile_dir:
         with sync_playwright() as playwright:
             context = playwright.chromium.launch_persistent_context(
@@ -49,4 +49,4 @@ def login_in_browser() -> str:
         raise RuntimeError("instagrapi rejected the sessionid")
     me = client.account_info()
     save_client(client)
-    return str(me.username)
+    return str(me.username), str(me.pk)

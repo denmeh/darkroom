@@ -74,10 +74,11 @@ class LoginStore:
         with self._lock:
             if self._validated:
                 return
-            logged_in, username = validate_session()
+            logged_in, username, pk = validate_session()
             self.logged_in = logged_in
             self.username = username
             self._validated = True
+        scan_store.bind(pk if logged_in else None)
 
     def start(self) -> None:
         with self._lock:
@@ -90,7 +91,7 @@ class LoginStore:
 
     def _run(self) -> None:
         try:
-            username = login_in_browser()
+            username, pk = login_in_browser()
         except Exception as exc:
             with self._lock:
                 self.state = "error"
@@ -102,8 +103,10 @@ class LoginStore:
             self.logged_in = True
             self.username = username
             self._validated = True
+        scan_store.bind(pk)
 
     def logout(self) -> AppStatus:
+        scan_store.bind(None)
         clear_session()
         with self._lock:
             self.logged_in = False

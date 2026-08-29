@@ -196,8 +196,8 @@ export default function App() {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col bg-background">
         <main className="mx-auto w-full max-w-5xl flex-1 p-6">
-          {nav === "scan" && <ScanPage />}
-          {nav === "history" && <HistoryPage />}
+          {nav === "scan" && <ScanPage key={status.username ?? ""} />}
+          {nav === "history" && <HistoryPage key={status.username ?? ""} />}
           {nav === "account" && (
             <div className="mx-auto max-w-sm">
               <LoginForm

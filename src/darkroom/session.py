@@ -36,13 +36,24 @@ def load_client() -> Client:
     return client
 
 
-def validate_session() -> tuple[bool, str | None]:
-    """Return (logged_in, username) for the saved session, if any."""
+def session_user_pk() -> str | None:
+    """Instagram user pk from the saved session, with no network call."""
     if not session_exists():
-        return False, None
+        return None
+    try:
+        pk = load_client().user_id
+    except Exception:
+        return None
+    return str(pk) if pk else None
+
+
+def validate_session() -> tuple[bool, str | None, str | None]:
+    """Return (logged_in, username, pk) for the saved session, if any."""
+    if not session_exists():
+        return False, None, None
     try:
         client = load_client()
         info = client.account_info()
-        return True, str(info.username)
+        return True, str(info.username), str(info.pk)
     except Exception:
-        return False, None
+        return False, None, None

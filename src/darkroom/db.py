@@ -37,8 +37,11 @@ CREATE TABLE IF NOT EXISTS scans (
   unfollowers_count INTEGER,
   vanished_count INTEGER,
   new_following_count INTEGER,
-  error TEXT
+  error TEXT,
+  owner_pk TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_scans_owner ON scans(owner_pk, id);
 
 CREATE TABLE IF NOT EXISTS scan_members (
   scan_id INTEGER NOT NULL,
@@ -81,13 +84,7 @@ class Database:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA)
-        self._migrate()
         self._conn.commit()
-
-    def _migrate(self) -> None:
-        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(accounts)")}
-        if "profile_pic_url" not in cols:
-            self._conn.execute("ALTER TABLE accounts ADD COLUMN profile_pic_url TEXT")
 
     def execute(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:
         with self._lock:

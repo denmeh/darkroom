@@ -12,12 +12,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import {
   forgetSession,
@@ -153,17 +153,17 @@ export default function App() {
   if (!status && !loadError) {
     return (
       <AuthLayout>
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Spinner />
-            </EmptyMedia>
-            <EmptyTitle>Checking sessions</EmptyTitle>
-            <EmptyDescription>
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl">Checking sessions</CardTitle>
+            <CardDescription>
               Looking for saved Instagram accounts on this machine.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center py-2">
+            <Spinner />
+          </CardContent>
+        </Card>
       </AuthLayout>
     )
   }
@@ -171,23 +171,27 @@ export default function App() {
   if (!status) {
     return (
       <AuthLayout>
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertTitle>Can&apos;t reach Darkroom</AlertTitle>
-          <AlertDescription>{loadError}</AlertDescription>
-        </Alert>
-        <Button
-          variant="outline"
-          onClick={() => {
-            void refresh().catch((error: unknown) => {
-              setLoadError(
-                error instanceof Error ? error.message : "Failed to load",
-              )
-            })
-          }}
-        >
-          Try again
-        </Button>
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl">Can&apos;t reach Darkroom</CardTitle>
+            <CardDescription>{loadError}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                void refresh().catch((error: unknown) => {
+                  setLoadError(
+                    error instanceof Error ? error.message : "Failed to load",
+                  )
+                })
+              }}
+            >
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
       </AuthLayout>
     )
   }

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from darkroom.following import FollowingRequest, FollowingStatus, store as following_store
 from darkroom.login import login_in_browser
 from darkroom.session import session_path, validate_session
 
@@ -116,6 +117,23 @@ def api_login() -> AppStatus:
 @app.get("/api/login/status", response_model=AppStatus)
 def api_login_status() -> AppStatus:
     return store.snapshot()
+
+
+@app.get("/api/following", response_model=FollowingStatus)
+def api_following_status() -> FollowingStatus:
+    return following_store.snapshot()
+
+
+@app.post("/api/following", response_model=FollowingStatus)
+def api_following_start(body: FollowingRequest) -> FollowingStatus:
+    if not store.snapshot().logged_in:
+        raise HTTPException(status_code=401, detail="Not logged in")
+    return following_store.start(body.username)
+
+
+@app.post("/api/following/stop", response_model=FollowingStatus)
+def api_following_stop() -> FollowingStatus:
+    return following_store.stop()
 
 
 def mount_ui() -> None:

@@ -15,6 +15,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getStatus, startLogin, type AppStatus } from "@/lib/api"
+import { FollowingPage } from "@/pages/Following"
 import { AuthLayout, LoginForm } from "@/pages/Login"
 import { PlaceholderPage } from "@/pages/Placeholder"
 
@@ -164,7 +165,7 @@ export default function App() {
         >
           <TabsList className="w-full">
             <TabsTrigger value="login">Login</TabsTrigger>
-            <TabsTrigger value="phase-2">Phase 2</TabsTrigger>
+            <TabsTrigger value="phase-2">Following</TabsTrigger>
             <TabsTrigger value="phase-3">Phase 3</TabsTrigger>
           </TabsList>
           <TabsContent value="login">
@@ -175,7 +176,7 @@ export default function App() {
             />
           </TabsContent>
           <TabsContent value="phase-2">
-            <PlaceholderPage title="Phase 2" phase={2} />
+            <FollowingPage />
           </TabsContent>
           <TabsContent value="phase-3">
             <PlaceholderPage title="Phase 3" phase={3} />
